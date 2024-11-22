@@ -17,7 +17,7 @@ setup(
     extras_require={
         "examples": ["datasets>=3.1.0"],  # Dependencies for example scripts
     },
-    python_requires=">=3.12",
+    python_requires=">=3.10",
     classifiers=[],
     include_package_data=True,
     zip_safe=False,
