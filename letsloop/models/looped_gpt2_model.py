@@ -129,7 +129,7 @@ class LoopedGPT2ModelLMHead(GPT2LMHeadModel):
 
 
         # If we haven't computed them, which is true when we are not using confidence threshold
-        if lm_logits is not None:
+        if lm_logits is None:
             assert hidden_states is not None
             # Set device for model parallelism
             if self.model_parallel:

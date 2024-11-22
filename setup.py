@@ -14,6 +14,9 @@ setup(
         "transformers>=4.46.3",
         "torch==2.5.1"
     ],
+    extras_require={
+        "examples": ["datasets>=3.1.0"],  # Dependencies for example scripts
+    },
     python_requires=">=3.12",
     classifiers=[],
     include_package_data=True,
