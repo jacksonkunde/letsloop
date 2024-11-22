@@ -9,6 +9,7 @@ To run the training example (`train_looped_gpt2.py`), install the required depen
 
 ```bash
 pip install letsloop[examples]
+```
 
 Or, if you're using requirements-examples.txt:
 

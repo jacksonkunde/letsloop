@@ -44,7 +44,7 @@ def main():
     # Define training arguments
     training_args = TrainingArguments(
         output_dir="./results",  # Directory for saving model checkpoints
-        evaluation_strategy="epoch",  # Evaluate at each epoch
+        eval_strategy="epoch",  # Evaluate at each epoch
         learning_rate=5e-5,  # Learning rate
         per_device_train_batch_size=4,  # Batch size per device
         per_device_eval_batch_size=4,
@@ -70,7 +70,7 @@ def main():
         args=training_args,
         train_dataset=datasets["train"],
         eval_dataset=datasets["validation"],
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         data_collator=data_collator,
     )
 
