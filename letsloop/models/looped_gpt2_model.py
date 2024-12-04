@@ -56,7 +56,7 @@ class LoopedGPT2ModelLMHead(GPT2LMHeadModel):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
-        n_loops: Optional[int] = None,
+        n_loops: Optional[torch.Tensor] = None,
     ) -> Union[Tuple, CausalLMOutputWithCrossAttentions]:
         # we will pass inputs_embeds as the last output after the first iteration
         # for NoPE embed, we will set positonal embed to zeros
@@ -86,7 +86,7 @@ class LoopedGPT2ModelLMHead(GPT2LMHeadModel):
 
         # If we are using max_iterations and the user passes in `n_loops` we will always loop for `n_loops` instead
         if n_loops is not None:
-            max_iterations = n_loops
+            max_iterations = int(n_loops.item())
         else:
             max_iterations = self.max_iterations
 
