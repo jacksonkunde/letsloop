@@ -85,7 +85,7 @@ class LoopedGPT2ModelLMHead(GPT2LMHeadModel):
             raise ValueError("You must provide either `input_ids` or `inputs_embeds`.")
 
         # If we are using max_iterations and the user passes in `n_loops` we will always loop for `n_loops` instead
-        if n_loops:
+        if n_loops is not None:
             max_iterations = n_loops
         else:
             max_iterations = self.max_iterations
