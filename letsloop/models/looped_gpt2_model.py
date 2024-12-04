@@ -22,7 +22,7 @@ class LoopedGPT2ModelLMHead(GPT2LMHeadModel):
         # Positional Embeddings
         if config.positional_embed_type == "NoPE":
             # Set positional embeddings to always be zero.
-            with torch.no_grad(): # Do this to avoid error `a leaf Variable that requires grad is being used in an in-place operation`
+            with torch.no_grad():  # Do this to avoid error `a leaf Variable that requires grad is being used in an in-place operation`
                 self.transformer.wpe.weight.fill_(0.0)
             self.transformer.wpe.weight.requires_grad = False
         # Stopping Crit
@@ -56,6 +56,7 @@ class LoopedGPT2ModelLMHead(GPT2LMHeadModel):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
+        n_loops: Optional[int] = None,
     ) -> Union[Tuple, CausalLMOutputWithCrossAttentions]:
         # we will pass inputs_embeds as the last output after the first iteration
         # for NoPE embed, we will set positonal embed to zeros
@@ -68,17 +69,29 @@ class LoopedGPT2ModelLMHead(GPT2LMHeadModel):
             batch_size, seq_length = input_ids.shape
             # Create mask for the case where some, but not all, batch items have met the confidence threshold
             if self.stopping_criteria == "confidence":
-                confidence_mask = torch.zeros((batch_size, seq_length), dtype=torch.bool, device=input_ids.device)
+                confidence_mask = torch.zeros(
+                    (batch_size, seq_length), dtype=torch.bool, device=input_ids.device
+                )
         elif inputs_embeds is not None:
             batch_size, seq_length = inputs_embeds.shape[:2]
             # Create mask for the case where some, but not all, batch items have met the confidence threshold
             if self.stopping_criteria == "confidence":
-                confidence_mask = torch.zeros((batch_size, seq_length), dtype=torch.bool, device=inputs_embeds.device)
+                confidence_mask = torch.zeros(
+                    (batch_size, seq_length),
+                    dtype=torch.bool,
+                    device=inputs_embeds.device,
+                )
         else:
             raise ValueError("You must provide either `input_ids` or `inputs_embeds`.")
 
+        # If we are using max_iterations and the user passes in `n_loops` we will always loop for `n_loops` instead
+        if n_loops:
+            max_iterations = n_loops
+        else:
+            max_iterations = self.max_iterations
+
         # First pass, we must also embed the input_ids
-        for iteration in range(self.max_iterations):
+        for iteration in range(max_iterations):
             transformer_outputs = self.transformer.forward(
                 input_ids=input_ids
                 if iteration == 0
@@ -127,7 +140,6 @@ class LoopedGPT2ModelLMHead(GPT2LMHeadModel):
                 else:
                     attention_mask = attention_mask.masked_fill(confidence_mask, 0.0)
 
-
         # If we haven't computed them, which is true when we are not using confidence threshold
         if lm_logits is None:
             assert hidden_states is not None
@@ -137,7 +149,6 @@ class LoopedGPT2ModelLMHead(GPT2LMHeadModel):
                 hidden_states = hidden_states.to(self.lm_head.weight.device)
             # Pass through LM head
             lm_logits = self.lm_head(hidden_states)
-            
 
         assert lm_logits is not None
         loss = None
@@ -148,7 +159,9 @@ class LoopedGPT2ModelLMHead(GPT2LMHeadModel):
             shift_logits = lm_logits[..., :-1, :].contiguous()
             shift_labels = labels[..., 1:].contiguous()
             # Flatten the tokens
-            loss = self.loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+            loss = self.loss_fct(
+                shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
+            )
 
         if not return_dict:
             output = (lm_logits,) + transformer_outputs[1:]
