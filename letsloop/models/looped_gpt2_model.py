@@ -70,33 +70,56 @@ class LoopedGPT2ModelLMHead(GPT2LMHeadModel):
             # Create mask for the case where some, but not all, batch items have met the confidence threshold
             if self.stopping_criteria == "confidence":
                 confidence_mask = torch.zeros(
-                    (batch_size, seq_length), dtype=torch.bool, device=input_ids.device
+                    batch_size, dtype=torch.bool, device=input_ids.device
                 )
         elif inputs_embeds is not None:
             batch_size, seq_length = inputs_embeds.shape[:2]
             # Create mask for the case where some, but not all, batch items have met the confidence threshold
             if self.stopping_criteria == "confidence":
                 confidence_mask = torch.zeros(
-                    (batch_size, seq_length),
+                    batch_size,
                     dtype=torch.bool,
                     device=inputs_embeds.device,
                 )
         else:
             raise ValueError("You must provide either `input_ids` or `inputs_embeds`.")
 
-        # If we are using max_iterations and the user passes in `n_loops` we will always loop for `n_loops` instead
+        # Validate or initialize `n_loops`
         if n_loops is not None:
-            max_iterations = int(n_loops.item())
+            if not isinstance(n_loops, torch.Tensor):
+                raise ValueError("`n_loops` must be a torch.Tensor.")
+            if n_loops.shape != (batch_size,):
+                raise ValueError(
+                    f"`n_loops` must have shape (batch_size,), but got {n_loops.shape}."
+                )
+            n_loops = n_loops.int()
         else:
-            max_iterations = self.max_iterations
+            n_loops = torch.full(
+                (batch_size,),
+                self.max_iterations,
+                dtype=torch.int,
+                device=input_ids.device,
+            )
+
+        active_mask = torch.ones(batch_size, dtype=torch.bool, device=input_ids.device)
+
+        hidden_states = None
+        lm_logits = None
 
         # First pass, we must also embed the input_ids
-        for iteration in range(max_iterations):
+        for iteration in range(self.max_iterations):
+            hidden_states = (
+                hidden_states[active_mask] if iteration > 0 else inputs_embeds
+            )
+            attention_mask = (
+                attention_mask[active_mask] if attention_mask is not None else None
+            )
+
             transformer_outputs = self.transformer.forward(
                 input_ids=input_ids
                 if iteration == 0
                 else None,  # Input IDs only in the first iteration
-                past_key_values=past_key_values,
+                past_key_values=None,
                 attention_mask=attention_mask,
                 token_type_ids=token_type_ids,
                 position_ids=position_ids,
@@ -111,7 +134,7 @@ class LoopedGPT2ModelLMHead(GPT2LMHeadModel):
             )
 
             # Extract the hidden states
-            hidden_states = transformer_outputs[0]
+            hidden_states = transformer_outputs.last_hidden_state
 
             if self.stopping_criteria == "confidence":
                 # Set device for model parallelism
@@ -127,18 +150,17 @@ class LoopedGPT2ModelLMHead(GPT2LMHeadModel):
                 confidence_scores, predicted_tokens = probabilities.max(dim=-1)
 
                 # Update the confidence mask for tokens meeting the threshold
-                new_confidence_mask = confidence_scores > self.confidence_threshold
+                new_confidence_mask = torch.all(
+                    confidence_scores > self.confidence_threshold, dim=-1
+                )
                 confidence_mask = confidence_mask | new_confidence_mask
+                active_mask &= ~confidence_mask
 
-                # If all tokens meet the threshold, stop iterating
-                if confidence_mask.all():
-                    break
+            n_loops[active_mask] -= 1
+            active_mask &= n_loops > 0
 
-                # Update attention mask to "freeze" confident tokens
-                if attention_mask is None:
-                    attention_mask = ~confidence_mask
-                else:
-                    attention_mask = attention_mask.masked_fill(confidence_mask, 0.0)
+            if not active_mask.any():
+                break
 
         # If we haven't computed them, which is true when we are not using confidence threshold
         if lm_logits is None:
