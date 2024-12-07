@@ -101,20 +101,13 @@ class LoopedGPT2ModelLMHead(GPT2LMHeadModel):
                 device=input_ids.device,
             )
 
-        active_mask = torch.ones(batch_size, dtype=torch.bool, device=input_ids.device)
-
-        hidden_states = None
-        lm_logits = None
+        if attention_mask is None:
+            attention_mask = torch.ones(
+                (batch_size, seq_length), device=input_ids.device
+            )
 
         # First pass, we must also embed the input_ids
         for iteration in range(self.max_iterations):
-            hidden_states = (
-                hidden_states[active_mask] if iteration > 0 else inputs_embeds
-            )
-            attention_mask = (
-                attention_mask[active_mask] if attention_mask is not None else None
-            )
-
             transformer_outputs = self.transformer.forward(
                 input_ids=input_ids
                 if iteration == 0
@@ -153,13 +146,15 @@ class LoopedGPT2ModelLMHead(GPT2LMHeadModel):
                 new_confidence_mask = torch.all(
                     confidence_scores > self.confidence_threshold, dim=-1
                 )
+                # After computing new_confidence_mask:
                 confidence_mask = confidence_mask | new_confidence_mask
-                active_mask &= ~confidence_mask
+                attention_mask[confidence_mask] = 0
 
-            n_loops[active_mask] -= 1
-            active_mask &= n_loops > 0
+            n_loops = n_loops - 1
+            finished_by_loops = n_loops <= 0
+            attention_mask[finished_by_loops] = 0
 
-            if not active_mask.any():
+            if torch.all(attention_mask == 0):
                 break
 
         # If we haven't computed them, which is true when we are not using confidence threshold
