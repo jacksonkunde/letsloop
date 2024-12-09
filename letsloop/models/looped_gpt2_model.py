@@ -106,6 +106,10 @@ class LoopedGPT2ModelLMHead(GPT2LMHeadModel):
                 (batch_size, seq_length), device=input_ids.device
             )
 
+        input_embedding = (
+            inputs_embeds if inputs_embeds else self.transformer.wte(input_ids)
+        )
+
         # First pass, we must also embed the input_ids
         for iteration in range(self.max_iterations):
             transformer_outputs = self.transformer.forward(
@@ -149,10 +153,13 @@ class LoopedGPT2ModelLMHead(GPT2LMHeadModel):
                 # After computing new_confidence_mask:
                 confidence_mask = confidence_mask | new_confidence_mask
                 attention_mask[confidence_mask] = 0
+                input_embedding[confidence_mask] = 0
 
             n_loops = n_loops - 1
             finished_by_loops = n_loops <= 0
             attention_mask[finished_by_loops] = 0
+            input_embedding[finished_by_loops] = 0
+            hidden_states = input_embedding + hidden_states  # Input injection
 
             if torch.all(attention_mask == 0):
                 break
